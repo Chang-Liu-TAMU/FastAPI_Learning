@@ -1,0 +1,411 @@
+user  nobody;
+#user root;
+worker_processes 1;
+
+
+#error_log  logs/error.log;
+#error_log  logs/error.log  notice;
+#error_log  logs/error.log  info;
+#pid        logs/nginx.pid;
+
+
+events {
+    worker_connections  102400;
+}
+
+
+
+rtmp{
+
+	server{
+
+		listen 19352;
+		chunk_size 4096;
+		timeout 60s;
+		ping 3m;
+		ping_timeout 30s;
+		buflen 5s;
+
+		# the settings for rtmp live
+		application live{
+
+			allow publish all;
+			allow play all;
+
+			live on;
+
+			drop_idle_publisher 10s;
+			max_connections 1024;
+
+			hls on;
+			hls_path /home/erow/data/hls;
+			hls_fragment 3s;
+			hls_playlist_length 9s;
+
+			dash on;
+			dash_path /home/erow/data/dash;
+			dash_fragment 1s;
+                        dash_playlist_length 3s;
+
+            #record video;
+            #record_suffix -%Y-%m-%d-%H-%M-%S.flv;
+            #record_unique on; # it will generate a uuid
+            #record_interval 600s;
+            #record_interval 10s;
+            #record_max_frames 10;
+            #record_max_size 100000K;
+            #record_path /data/record/flvs;
+
+            #exec_record_done ffmpeg -y -i $path -vcodec libx264 /data/record/mp4s/$basename.mp4;
+            #exec_record_done ffmpeg -y -i $path -vcodec libx264 /data/record/mp4s/$basename.mp4;
+
+            # manual record video to flv file
+            recorder grabvideo{
+                record video manual;
+                record_suffix -%Y-%m-%d-%H-%M-%S.flv;
+                record_path /home/erow/data/recorder/grabvideo/grabflvs;
+                record_unique off;
+                record_max_size 40960K;
+                record_lock on;
+                record_notify on;
+                on_record_done http://127.0.0.1:8088/rtmpservice/ongrabvideodone;
+            }
+
+            #notify_method get;
+            #notify_method post;
+            #on_record_done http://127.0.0.1:5002/onrecorddone;
+            #on_play http://127.0.0.1:80/rtmpservice/onplay;
+            #on_play_done http://127.0.0.1:80/rtmpservice/onplaydone;
+            #on_publish http://127.0.0.1:80/rtmpservice/onpublish;
+            #on_publish_done http://127.0.0.1:80/rtmpservice/onpublishdone;
+
+	}
+
+
+        # grab video as flvs
+        application grabflvs{
+            play /home/erow/data/recorder/grabvideo/grabflvs;
+        }
+
+
+        # grab video as mp4s
+        application grabmp4s{
+            play /home/erow/data/recorder/grabvideo/grabmp4s;
+        }
+
+	application vod{
+		play /home/erow/data/vod;
+	}
+}
+}
+
+
+
+
+
+http {
+
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile        on;
+    keepalive_timeout  65;
+    gzip on;
+    client_max_body_size 500m;
+
+    server {
+
+        listen       8088;
+        #server_name  localhost;
+        #server_name _;
+        #server_name ~^.*$
+        #server_name ~^(.+)$
+
+        # default router
+        #location / {
+	#	    root   html;
+        #   	index  index.html index.htm;
+        #}
+
+
+        #location ~ \.flv$ {
+        #    root /home/erow/data/flv;
+        #    flv;s
+        #}
+        #location ~ \.mp4$ {
+        #    root /home/erow/data/mp4;
+        #    mp4;
+        #}
+
+        location /nginxstatus {
+                stub_status on;
+        }
+
+        # /data/hls/live
+        # save our m3u8 file to /data/hls/live
+        location /hls {
+	        types{
+		        application/vnd.apple.mpegurl m3u8;
+		        video/mp2t ts;
+	        }
+	        root /home/erow/data;
+	        expires -1;
+	        add_header Cache-Control no-cache;
+	        add_header Access-Control-Allow-Origin *;
+	        add_header Access-Control-Allow-Methods *;
+	        add_header Access-Control-Allow-Headers *;
+        }
+
+	location /dash {
+                root /home/erow/data;
+                add_header Cache-Control no-cache;
+                add_header Access-Control-Allow-Origin *;
+        }
+
+        location /vod {
+	        types{
+		        application/vnd.apple.mpegurl m3u8;
+		        video/mp2t ts;
+	        }
+	        root /home/erow/data/vod;
+	        expires -1;
+	        add_header Cache-Control no-cache;
+	        add_header Access-Control-Allow-Origin *;
+	        add_header Access-Control-Allow-Methods *;
+	        add_header Access-Control-Allow-Headers *;
+        }
+
+
+        # view the rtmp server status
+        location /stat {
+            rtmp_stat all;
+            rtmp_stat_stylesheet stat.xsl;
+        }
+
+        # view the rtmp server status
+        location /stat.xsl {
+            root html;
+        }
+
+
+
+        # nginx rtmp control
+        # control video recorder start or stop
+        location /control {
+            rtmp_control all;
+        }
+
+
+
+        # /data/recorder/grabvideo/grabflvs
+        #location /grabflvs {
+        #    root /home/erow/data/recorder/grabvideo;
+        #    flv;
+            #limit_conn addr 20;
+            #limit_rate 200k;
+        #}
+
+        # /data/recorder/grabvideo/grabmp4s
+        #location /grabmp4s {
+        #    root /home/erow/data/recorder/grabvideo;
+        #    mp4;
+            #limit_conn addr 20;
+            #limit_rate 200k;
+        #}
+
+        location /gb28181/ {
+                proxy_pass http://localhost:8080/;
+        }
+
+        location /audiotalk/ {
+                proxy_pass http://localhost:10000/;
+        }
+
+        #location / {
+        #        include uwsgi_params;
+        #        uwsgi_pass  127.0.0.1:5004;
+        #        uwsgi_param UWSGI_PYHOME /usr/bin/python3;
+        #        uwsgi_param UWSGI_CHDIR /home/erow/workers/erowvideoserver/videoserver;
+        #        uwsgi_param UWSGI_SCRIPT videoserverapi:app;
+        #}
+
+        location /rtmpservice {
+                include uwsgi_params;
+                uwsgi_param SCRIPT_NAME /rtmpservice;
+                uwsgi_pass  127.0.0.1:5002;
+                uwsgi_param UWSGI_PYHOME /usr/bin/python3;
+                uwsgi_param UWSGI_CHDIR /home/erow/workers/erownginxrtmpservice/nginxrtmpservice;
+                uwsgi_param UWSGI_SCRIPT main:app;
+        }
+
+        ### add the router for nginx
+        ### so we must set for uwsgi ini diifferent
+        #location /rtmpapi {
+        #        include uwsgi_params;
+        #        uwsgi_param SCRIPT_NAME /rtmpapi;
+        #        uwsgi_pass  127.0.0.1:5003;
+        #        uwsgi_param UWSGI_PYHOME /usr/bin/python3;
+        #        uwsgi_param UWSGI_CHDIR /home/erow/workers/erownginxrtmpapi/nginxrtmpapi;
+        #        uwsgi_param UWSGI_SCRIPT nginx_rtmp_api:app;
+        #}
+
+        ### smsserver api
+        #location /sms {
+        #        include uwsgi_params;
+        #        uwsgi_param SCRIPT_NAME /sms;
+        #        uwsgi_pass  127.0.0.1:5001;
+        #        uwsgi_param UWSGI_PYHOME /usr/bin/python3;
+        #        uwsgi_param UWSGI_CHDIR /home/erow/workers/smsserver;
+        #        uwsgi_param UWSGI_SCRIPT main:app;
+        #}
+
+        location /jen {
+                #include proxy_params;
+                #proxy_param SCRIPT_NAME /jen;
+                proxy_pass http://127.0.0.1:5005/;
+        }
+
+        location /bridge/ {
+                proxy_pass http://127.0.0.1:8081/;
+        }
+
+        location /qiao/ {
+                proxy_pass http://127.0.0.1:8090/;
+        }
+
+    	#error_page   500 502 503 504  /50x.html;
+    	location = /50x.html {
+    	    root   html;
+    	}
+
+        # proxy the PHP scripts to Apache listening on 127.0.0.1:80
+        #
+        location ~ \.php$ {
+            proxy_pass   http://127.0.0.1;
+        }
+
+        # pass the PHP scripts to FastCGI server listening on 127.0.0.1:9000
+        #
+        location ~ \.php$ {
+            root           html;
+            fastcgi_pass   127.0.0.1:9000;
+            fastcgi_index  index.php;
+            fastcgi_param  SCRIPT_FILENAME  /scripts$fastcgi_script_name;
+            include        fastcgi_params;
+        }
+
+        # deny access to .htaccess files, if Apache's document root
+        # concurs with nginx's one
+        #
+        location ~ /\.ht {
+            deny  all;
+        }
+    }
+
+server {
+                #listen       4431;
+                listen       4431 ssl;
+
+                ssl_certificate      /etc/nginx/ssl/3997458__erow.cn.pem;
+                ssl_certificate_key  /etc/nginx/ssl/3997458__erow.cn.key;
+
+                location /nginxstatus {
+                        stub_status on;
+                }
+
+                location /stat {
+                        rtmp_stat all;
+                        rtmp_stat_stylesheet stat.xsl;
+                }
+
+                location /stat.xsl {
+                        root html;
+                }
+
+                location /control {
+                        rtmp_control all;
+                }
+
+                location /grabflvs {
+                        root /home/erow/data/recorder/grabvideo;
+                        flv;
+                }
+
+                location /grabmp4s {
+                        root /home/erow/data/recorder/grabvideo;
+                        mp4;
+                }
+
+                location /player{
+                        root html;
+                }
+
+                location /live {
+                        types{
+                                application/vnd.apple.mpegurl m3u8;
+                                video/mp2t ts;
+                        }
+                        root /home/erow/data/hls;
+                        expires -1;
+                        add_header Cache-Control no-cache;
+                        add_header Access-Control-Allow-Origin *;
+                        add_header Access-Control-Allow-Methods *;
+                        add_header Access-Control-Allow-Headers *;
+                }
+                location /vod {
+                        types{
+                                application/vnd.apple.mpegurl m3u8;
+                                video/mp2t ts;
+                        }
+                        root /home/erow/data/vod;
+                        expires -1;
+                        add_header Cache-Control no-cache;
+                        add_header Access-Control-Allow-Origin *;
+                        add_header Access-Control-Allow-Methods *;
+                        add_header Access-Control-Allow-Headers *;
+                }
+
+                #location /sms {
+                #        include uwsgi_params;
+                #        uwsgi_param SCRIPT_NAME /sms;
+                #        uwsgi_pass  127.0.0.1:6002;
+                #        uwsgi_param UWSGI_PYHOME /usr/bin/python3;
+                #        uwsgi_param UWSGI_CHDIR /data/workers/smsserver2;
+                #        uwsgi_param UWSGI_SCRIPT main:app;
+                #}
+        location / {
+                include uwsgi_params;
+                uwsgi_pass  127.0.0.1:5004;
+                uwsgi_param UWSGI_PYHOME /usr/bin/python3;
+                uwsgi_param UWSGI_CHDIR /home/erow/workers/erowvideoserver/videoserver;
+                uwsgi_param UWSGI_SCRIPT videoserverapi:app;
+        }
+
+        #location /rtmpservice {
+        #        include uwsgi_params;
+        #        uwsgi_param SCRIPT_NAME /rtmpservice;
+        #        uwsgi_pass  127.0.0.1:5002;
+        #        uwsgi_param UWSGI_PYHOME /usr/bin/python3;
+        #        uwsgi_param UWSGI_CHDIR /home/erow/workers/erownginxrtmpservice/nginxrtmpservice;
+        #        uwsgi_param UWSGI_SCRIPT main:app;
+        #}
+
+        location /rtmpapi {
+                include uwsgi_params;
+                uwsgi_param SCRIPT_NAME /rtmpapi;
+                uwsgi_pass  127.0.0.1:5003;
+                uwsgi_param UWSGI_PYHOME /usr/bin/python3;
+                uwsgi_param UWSGI_CHDIR /home/erow/workers/erownginxrtmpapi/nginxrtmpapi;
+                uwsgi_param UWSGI_SCRIPT nginx_rtmp_api:app;
+        }
+
+        location /sms {
+                include uwsgi_params;
+                uwsgi_param SCRIPT_NAME /sms;
+                uwsgi_pass  127.0.0.1:5001;
+                uwsgi_param UWSGI_PYHOME /usr/bin/python3;
+                uwsgi_param UWSGI_CHDIR /home/erow/workers/smsserver;
+                uwsgi_param UWSGI_SCRIPT main:app;
+        }
+    }
+
+}
